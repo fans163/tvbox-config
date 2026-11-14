@@ -289,6 +289,19 @@ def main():
         for s in front + mid + back:
             s.pop("_dt", None)
         kept = front + mid + back
+
+        # 仓内去重：接口和名字完全一致才算重复（同接口不同名是分类入口，保留）
+        seen, dedup, dup = set(), [], 0
+        for s in kept:
+            k = (s.get("api") or "") + "||" + (s.get("name") or "")
+            if k in seen:
+                dup += 1
+                continue
+            seen.add(k)
+            dedup.append(s)
+        kept = dedup
+        if dup:
+            print("  去重 %d 个" % dup)
         d["sites"] = kept
 
         path = os.path.join(OUT_DIR, slug + ".json")
