@@ -202,6 +202,19 @@ def probe(api):
     return ("slow", dt) if dt > SLOW_SEC else ("ok", dt)
 
 
+def bump(state, key, ok, reason=""):
+    """成功清零；失败累加。返回是否达到「连续 3 天失败 → 永久删除」阈值"""
+    if ok:
+        state.pop(key, None)
+        return False
+    e = state.setdefault(key, {"fail": 0})
+    e["fail"] = e.get("fail", 0) + 1
+    if reason:
+        e["reason"] = reason
+    e["last"] = datetime.date.today().isoformat()
+    return e["fail"] >= 3
+
+
 def load_blocklist():
     try:
         with open(BLOCK_FILE, encoding="utf-8") as f:
@@ -213,6 +226,10 @@ def load_blocklist():
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     blocked = load_blocklist()
+    try:
+        state = json.load(open("state.json", encoding="utf-8"))
+    except FileNotFoundError:
+        state = {}
     try:
         speed = json.load(open("speed.json", encoding="utf-8"))
     except FileNotFoundError:
@@ -249,6 +266,7 @@ def main():
         for f in concurrent.futures.as_completed(futs):
             host_res[futs[f]] = f.result()
 
+    seen_ok, seen_fail = set(), {}
     rows, urls = [], []
     for slug, name, payload, n_bad, note in datasets:
         if payload is None:
@@ -257,7 +275,7 @@ def main():
         d, raw_url = payload
         sites = d["sites"]
 
-        kept, dropped_slow, dropped_block, untested = [], 0, 0, 0
+        kept, dropped_slow, dropped_block, dropped_perm, untested = [], 0, 0, 0, 0
         front, mid, back = [], [], []
         for s in sites:
             sname = s.get("name") or ""
@@ -268,17 +286,31 @@ def main():
             if SPECIAL.search(sname):
                 mid.append(s)          # 配置中心/本地/搜索等内置项
                 continue
+
             h = primary_host(s)
-            if h and host_res.get(h) in ("dns", "tcp"):
-                dropped_slow += 1      # 域名解析不了或连不上：删
+            # 状态键：优先用接口，没有接口用域名。连续 3 天失败才永久删除
+            key = ("api:" + api) if api.startswith("http") else ("host:" + (h or sname))
+            if state.get(key, {}).get("fail", 0) >= 3:
+                dropped_perm += 1
                 continue
+
+            if h and host_res.get(h) in ("dns", "tcp"):
+                seen_fail[key] = host_res.get(h)
+                dropped_slow += 1
+                continue
+
             if not api.startswith("http"):
+                seen_ok.add(key)
                 mid.append(s)          # jar / js / py 解析器源：不测，居中
                 untested += 1
                 continue
+
             if api in speed and speed[api] < 10:
-                dropped_slow += 1      # 实测吞吐低于 10KB/s：删
+                seen_fail[key] = "slow"
+                dropped_slow += 1
                 continue
+
+            seen_ok.add(key)
             if api in speed:
                 s["_dt"] = speed[api]
                 front.append(s)        # 有实测速度：按速度排前面
@@ -312,10 +344,26 @@ def main():
             "name": name,
             "url": PROXY + "https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/" + path,
         })
-        rows.append((slug, name, True, len(kept), dropped_slow + dropped_block,
-                     len(front), untested))
-        print("%-14s 保留%-4d 删%-3d 快源%-3d 未测%-3d" % (
-            slug, len(kept), dropped_slow + dropped_block, len(front), untested))
+        rows.append((slug, name, True, len(kept),
+                     dropped_slow + dropped_block + dropped_perm, len(front), untested))
+        print("%-14s 保留%-4d 删%-3d(临时%d/永久%d) 快源%-3d 未测%-3d" % (
+            slug, len(kept), dropped_slow + dropped_block + dropped_perm,
+            dropped_slow, dropped_perm + dropped_block, len(front), untested))
+
+    # 每轮每个源只记一次，避免被多个仓重复计数
+    today = datetime.date.today().isoformat()
+    for k in seen_ok - set(seen_fail):
+        state.pop(k, None)
+    for k, reason in seen_fail.items():
+        e = state.setdefault(k, {"fail": 0})
+        e["fail"] = e.get("fail", 0) + 1
+        e["reason"] = reason
+        e["last"] = today
+    # 已有 3 次失败记录的保留，成功过的不再出现
+    state = {k: v for k, v in state.items() if v.get("fail", 0) > 0}
+    with open("state.json", "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=1, sort_keys=True)
+    print("状态记录：%d 个源待观察" % len(state))
 
     if not urls:
         print("!! 全部上游不可用，保留旧文件", file=sys.stderr)
