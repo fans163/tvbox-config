@@ -163,11 +163,17 @@ def primary_host(site):
     return found[0] if found else None
 
 
+IN_CI = os.environ.get("GITHUB_ACTIONS") == "true"
+
+
 def net_check(host):
     try:
         socket.getaddrinfo(host, None)
     except Exception:  # noqa: BLE001
         return "dns"
+    if IN_CI:
+        # GitHub Actions 在美国，连国内源站的 TCP 大量误判，只做 DNS 判断
+        return "ok"
     for port in (443, 80):
         try:
             s = socket.create_connection((host, port), timeout=3)
