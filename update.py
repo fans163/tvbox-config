@@ -67,6 +67,9 @@ BAD = re.compile(
 # 这些是 TVBox 内置功能项，不是真实片源，保持原位不参与测速
 SPECIAL = re.compile(r"配置|本地|搜索|设置", re.I)
 
+# 成人内容：家庭电视上不该出现
+ADULT = re.compile(r"成人|黄AV|AV资源|porn|约炮|福利姬|三级片|av在线|涩涩", re.I)
+
 _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
@@ -210,6 +213,10 @@ def load_blocklist():
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     blocked = load_blocklist()
+    try:
+        speed = json.load(open("speed.json", encoding="utf-8"))
+    except FileNotFoundError:
+        speed = {}
 
     # 汇总所有源的 api，去重后统一测一次
     all_apis, all_hosts, datasets = set(), set(), []
@@ -233,12 +240,8 @@ def main():
                 all_hosts.add(h)
         datasets.append((slug, name, (d, raw_url), n_bad, "ok"))
 
-    print("待测接口 %d 个 / 待测域名 %d 个" % (len(all_apis), len(all_hosts)))
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(probe, a): a for a in all_apis}
-        for f in concurrent.futures.as_completed(futs):
-            results[futs[f]] = f.result()
+    print("域名检测 %d 个；接口速度用本地快照 speed.json（%d 条）" % (
+        len(all_hosts), len(speed)))
 
     host_res = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
@@ -273,18 +276,16 @@ def main():
                 mid.append(s)          # jar / js / py 解析器源：不测，居中
                 untested += 1
                 continue
-            st, dt = results.get(api, ("unknown", None))
-            if st == "dead":
-                dropped_slow += 1      # 域名不解析，直接删
-            elif st == "slow":
-                dropped_slow += 1      # 超过阈值，删
-            elif st == "ok":
-                s["_dt"] = dt
-                front.append(s)
+            if api in speed and speed[api] < 10:
+                dropped_slow += 1      # 实测吞吐低于 10KB/s：删
+                continue
+            if api in speed:
+                s["_dt"] = speed[api]
+                front.append(s)        # 有实测速度：按速度排前面
             else:
-                back.append(s)         # 连不上：降级不删
+                mid.append(s)          # 没测过：居中保留
 
-        front.sort(key=lambda x: x.get("_dt", 99))
+        front.sort(key=lambda x: x.get("_dt", 0), reverse=True)
         for s in front + mid + back:
             s.pop("_dt", None)
         kept = front + mid + back
