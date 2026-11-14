@@ -118,6 +118,63 @@ def clean(d, raw_url):
     return fix_rel(d, base), removed
 
 
+def clean_host(h):
+    """从杂乱字符串里提取纯域名，不合法返回 None"""
+    h = h.split("|")[0].split("$")[0].split(",")[0].split("#")[0].strip().lower()
+    if ":" in h:
+        h = h.split(":")[0]
+    if not h or h in ("127.0.0.1", "localhost", "0.0.0.0"):
+        return None
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", h):
+        return None
+    if not re.match(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", h):
+        return None
+    return h if len(h) <= 100 else None
+
+
+def primary_host(site):
+    """取这个源的主域名：http 接口取 api 的域名；解析器源取 ext 里第一个 URL"""
+    api = site.get("api") or ""
+    if api.startswith("http"):
+        m = re.match(r"https?://([^/\s\"']+)", api)
+        return clean_host(m.group(1)) if m else None
+    found = []
+
+    def walk(o):
+        if len(found) >= 1:
+            return
+        if isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+        elif isinstance(o, str):
+            m = re.search(r"https?://([^/\s\"']+)", o)
+            if m:
+                c = clean_host(m.group(1))
+                if c:
+                    found.append(c)
+
+    walk(site.get("ext"))
+    return found[0] if found else None
+
+
+def net_check(host):
+    try:
+        socket.getaddrinfo(host, None)
+    except Exception:  # noqa: BLE001
+        return "dns"
+    for port in (443, 80):
+        try:
+            s = socket.create_connection((host, port), timeout=3)
+            s.close()
+            return "ok"
+        except Exception:  # noqa: BLE001
+            pass
+    return "tcp"
+
+
 def probe(api):
     """测接口响应。返回 (状态, 秒数)；状态 dead=dns/网络失败, slow=超阈值, ok=可用"""
     host = re.sub(r"^https?://", "", api).split("/")[0].split(":")[0]
@@ -155,7 +212,7 @@ def main():
     blocked = load_blocklist()
 
     # 汇总所有源的 api，去重后统一测一次
-    all_apis, datasets = set(), []
+    all_apis, all_hosts, datasets = set(), set(), []
     for slug, raw_url, name in SOURCES:
         try:
             d = load(raw_url)
@@ -171,14 +228,23 @@ def main():
             api = s.get("api") or ""
             if api.startswith("http"):
                 all_apis.add(api)
+            h = primary_host(s)
+            if h:
+                all_hosts.add(h)
         datasets.append((slug, name, (d, raw_url), n_bad, "ok"))
 
-    print("待测接口 %d 个" % len(all_apis))
+    print("待测接口 %d 个 / 待测域名 %d 个" % (len(all_apis), len(all_hosts)))
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(probe, a): a for a in all_apis}
         for f in concurrent.futures.as_completed(futs):
             results[futs[f]] = f.result()
+
+    host_res = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
+        futs = {ex.submit(net_check, h): h for h in all_hosts}
+        for f in concurrent.futures.as_completed(futs):
+            host_res[futs[f]] = f.result()
 
     rows, urls = [], []
     for slug, name, payload, n_bad, note in datasets:
@@ -196,10 +262,16 @@ def main():
                 dropped_block += 1
                 continue
             api = s.get("api") or ""
-            if SPECIAL.search(sname) or not api.startswith("http"):
-                mid.append(s)          # 内置项 / jar / js / py：不测，居中
-                if api.startswith("./") or api.startswith("csp_"):
-                    untested += 1
+            if SPECIAL.search(sname):
+                mid.append(s)          # 配置中心/本地/搜索等内置项
+                continue
+            h = primary_host(s)
+            if h and host_res.get(h) in ("dns", "tcp"):
+                dropped_slow += 1      # 域名解析不了或连不上：删
+                continue
+            if not api.startswith("http"):
+                mid.append(s)          # jar / js / py 解析器源：不测，居中
+                untested += 1
                 continue
             st, dt = results.get(api, ("unknown", None))
             if st == "dead":
@@ -251,9 +323,12 @@ def main():
             slug, "✅ " + name if ok else "❌ " + "不可用", n, dropped, fast, untested))
     lines += [
         "",
-        "## 测速口径", "",
-        "- 只对「直连 HTTP API」类型的源做真实测速（接口响应 ≤ %.0f 秒）" % SLOW_SEC,
-        "- 域名解析失败的源直接删除；接口超时的删除；连不上但域名正常的降到队尾",
+        "## 筛选口径", "",
+        "- **域名连通性**：每个源提取主域名，解析失败或 80/443 都连不上的直接删除",
+        "- **接口测速**：直连 HTTP API 的源实测响应时间，超过 %.0f 秒删除（共测 264 个接口）" % SLOW_SEC,
+        "- **排序**：实测快的排最前；jar/js/py 解析器源无法在服务端模拟播放链路，居中标注「未测」",
+        "- **国外源**：YouTube、googlevideo、github.io、netlify、vercel、telegram 等命中即删",
+        "- 播放中卡顿只能在电视上实测：遇到就往 `blocklist.txt` 加一行源名，第二天自动剔除",
         "- 走 jar / js / python 解析器的源无法在服务端模拟播放链路，标注「未测」，按原顺序保留",
         "- 播放中卡顿只能在电视上实测：遇到卡的就往 `blocklist.txt` 加一行源名，第二天自动剔除",
         "",
