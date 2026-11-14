@@ -27,6 +27,7 @@ import socket
 import ssl
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 PROXY = "https://gh-proxy.com/"
@@ -37,7 +38,15 @@ BLOCK_FILE = "blocklist.txt"
 
 SOURCES = [
     ("qist-jsm", "https://raw.githubusercontent.com/qist/tvbox/master/jsm.json",
-     "家庭电视版（无直播）"),
+     "家庭电视版（无直播·推荐）"),
+    ("lightconer", "https://raw.githubusercontent.com/Lightconer/tvbox-ysc-config/main/output/单仓聚合.json",
+     "聚合大仓（片源最多）"),
+    ("qist-js", "https://raw.githubusercontent.com/qist/tvbox/master/js.json",
+     "大合集"),
+    ("niubihu1", "https://raw.githubusercontent.com/niubihu1/tvbox/main/1.json",
+     "牛虎"),
+    ("hd9211", "https://raw.githubusercontent.com/hd9211/Tvbox1/main/zy.json",
+     "采集站合集"),
     ("qist-dianshi", "https://raw.githubusercontent.com/qist/tvbox/master/dianshi.json",
      "电视自用"),
     ("qist-0825", "https://raw.githubusercontent.com/qist/tvbox/master/0825.json",
@@ -64,6 +73,7 @@ _ctx.verify_mode = ssl.CERT_NONE
 
 
 def fetch(url, timeout=TIMEOUT):
+    url = urllib.parse.quote(url, safe=":/?&=%")
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout, context=_ctx) as r:
         return r.read()
