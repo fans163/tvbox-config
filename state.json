@@ -250,7 +250,7 @@
   "reason": "dns"
  },
  "host:app.kzjtv.com": {
-  "fail": 1,
+  "fail": 2,
   "last": "2026-11-14",
   "reason": "dns"
  },
@@ -291,6 +291,11 @@
  },
  "host:www.kuin.one": {
   "fail": 3,
+  "last": "2026-11-14",
+  "reason": "dns"
+ },
+ "host:www.maolvys.com": {
+  "fail": 1,
   "last": "2026-11-14",
   "reason": "dns"
  },
