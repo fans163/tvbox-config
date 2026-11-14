@@ -1,0 +1,20 @@
+{
+  "urls": [
+    {
+      "name": "qist 家庭电视版（无直播·推荐）",
+      "url": "https://gh-proxy.com/https://raw.githubusercontent.com/qist/tvbox/master/jsm.json"
+    },
+    {
+      "name": "qist 电视自用",
+      "url": "https://gh-proxy.com/https://raw.githubusercontent.com/qist/tvbox/master/dianshi.json"
+    },
+    {
+      "name": "qist 小而精",
+      "url": "https://gh-proxy.com/https://raw.githubusercontent.com/qist/tvbox/master/0825.json"
+    },
+    {
+      "name": "qist 大合集（源最多·含YouTube）",
+      "url": "https://gh-proxy.com/https://raw.githubusercontent.com/qist/tvbox/master/js.json"
+    }
+  ]
+}

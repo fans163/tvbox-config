@@ -1,0 +1,34 @@
+name: update-config
+
+on:
+  schedule:
+    # UTC 20:00 = 北京时间 04:00
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'update.py'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检测上游并生成多仓配置
+        run: python3 update.py
+
+      - name: 提交变化
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有变化"
+          else
+            git commit -m "auto update $(date -u +%Y-%m-%d_%H:%M)"
+            git push
+          fi
