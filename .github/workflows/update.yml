@@ -37,6 +37,5 @@ jobs:
             echo "没有变化"
           else
             git commit -m "auto update $(date -u +%Y-%m-%d_%H:%M)"
-            git pull --rebase --autostash origin main || true
-            git push
+            git push --force origin main
           fi
