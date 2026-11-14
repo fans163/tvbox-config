@@ -1,35 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TVBox / OK影视 配置聚合器（国内净化版）
+TVBox / OK影视 配置聚合器（国内净化 + 慢源治理）
 
-每天：
-  1. 拉取上游配置，校验 JSON 与片源数量
+每天做的事：
+  1. 拉上游配置，校验 JSON 与片源数量
   2. 剔除需要翻墙的站点（YouTube / googlevideo / github.io / netlify / vercel 等）
-  3. 把 spider 的相对路径（./jar/xxx.jar）改写为绝对地址，保证镜像后还能用
-  4. 净化后的配置存到 sources/<slug>.json，多仓地址指向本仓库
-  5. 写 status.md
+  3. 把 ./xxx 相对路径改写成上游绝对地址（否则镜像后 spider、ext 全断）
+  4. 测速：能直连的源测接口响应；域名解析不了的直接删；超过阈值的删
+  5. 排序：快的排前，测不动的排后，让电视上第一眼看到的就是能用的
+  6. 生成多仓 tvbox.json + status.md
 
-设计要点：
-  - 上游配置里 spider 是 "./jar/spider.jar;md5;..."，直接镜像会让 jar 路径断掉，
-    所以必须把相对路径改成「代理 + 上游目录 + 文件名」的绝对地址。
-  - 国外站点在国内直连不通，用户也不上 VPN，过滤掉可减少点了没反应的死链。
+关于测速的诚实边界：
+  161 个源里只有十几个是「直连 HTTP API」类型，可以直接测；
+  其余走 jar / js / python 解析器，服务器端无法模拟完整播放链路，
+  只能标注"未测"，不能凭猜测删。播放中卡顿只能在电视上实测，
+  遇到就写进 blocklist.txt，下一轮自动剔除。
 """
 
+import concurrent.futures
+import datetime
 import json
 import os
 import re
+import socket
 import ssl
 import sys
+import time
 import urllib.request
-import datetime
 
 PROXY = "https://gh-proxy.com/"
-PROXY_ALT = "https://ghproxy.net/"
-TIMEOUT = 25
+TIMEOUT = 20            # 接口超时
+SLOW_SEC = 10.0         # 超过这个秒数视为慢源，删除
 OUT_DIR = "sources"
+BLOCK_FILE = "blocklist.txt"
 
-# (slug, raw url, 显示名)
 SOURCES = [
     ("qist-jsm", "https://raw.githubusercontent.com/qist/tvbox/master/jsm.json",
      "家庭电视版（无直播）"),
@@ -41,9 +46,8 @@ SOURCES = [
      "极简"),
 ]
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+UA = "Mozilla/5.0 (Linux; Android 11; TV) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
-# 需要翻墙的域名特征
 BAD = re.compile(
     r"youtube|youtu\.be|googlevideo|ytimg|ggpht|gstatic|"
     r"github\.io|netlify\.app|vercel\.app|herokuapp|glitch\.me|"
@@ -51,34 +55,33 @@ BAD = re.compile(
     re.I,
 )
 
+# 这些是 TVBox 内置功能项，不是真实片源，保持原位不参与测速
+SPECIAL = re.compile(r"配置|本地|搜索|设置", re.I)
 
-def fetch(url):
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+_ctx = ssl.create_default_context()
+_ctx.check_hostname = False
+_ctx.verify_mode = ssl.CERT_NONE
+
+
+def fetch(url, timeout=TIMEOUT):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as r:
+    with urllib.request.urlopen(req, timeout=timeout, context=_ctx) as r:
         return r.read()
 
 
 def load(raw_url):
-    """先直连，失败走代理"""
     last = ""
-    for u in (raw_url, PROXY + raw_url):
-        try:
-            return json.loads(fetch(u).decode("utf-8", "ignore"))
-        except Exception as e:  # noqa: BLE001
-            last = "%s: %s" % (type(e).__name__, str(e)[:50])
+    for _ in range(2):
+        for u in (raw_url, PROXY + raw_url):
+            try:
+                return json.loads(fetch(u).decode("utf-8", "ignore"))
+            except Exception as e:  # noqa: BLE001
+                last = "%s: %s" % (type(e).__name__, str(e)[:50])
     raise RuntimeError(last)
 
 
 def fix_rel(obj, base):
-    """把配置里所有 "./xxx" 相对路径改写成上游绝对地址（走代理）。
-
-    上游大量用 "./json/xxx.json"、"./js/xxx.js"、"./jar/spider.jar;md5;..."
-    这种相对引用；一旦把配置镜像到本仓库，这些文件就不存在了，
-    必须指回上游原地址，否则对应站点全部失效。
-    """
+    """把 ./xxx 相对路径改成上游绝对地址（走代理）"""
     if isinstance(obj, dict):
         return {k: fix_rel(v, base) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -89,9 +92,7 @@ def fix_rel(obj, base):
 
 
 def clean(d, raw_url):
-    """过滤国外站点 + 修所有相对路径。返回 (新字典, 剔除了多少)"""
     base = raw_url.rsplit("/", 1)[0] + "/"
-
     removed = 0
     for key in ("sites", "lives", "parses"):
         items = d.get(key)
@@ -104,40 +105,121 @@ def clean(d, raw_url):
             else:
                 keep.append(it)
         d[key] = keep
+    return fix_rel(d, base), removed
 
-    d = fix_rel(d, base)
-    return d, removed
+
+def probe(api):
+    """测接口响应。返回 (状态, 秒数)；状态 dead=dns/网络失败, slow=超阈值, ok=可用"""
+    host = re.sub(r"^https?://", "", api).split("/")[0].split(":")[0]
+    try:
+        socket.gethostbyname(host)
+    except Exception:  # noqa: BLE001
+        return "dead", None
+
+    sep = "&" if "?" in api else "?"
+    url = api + sep + "ac=videolist&pg=1"
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, headers={"User-Agent": UA}),
+            timeout=TIMEOUT, context=_ctx,
+        ) as r:
+            r.read(4096)
+        dt = time.time() - t0
+    except Exception:  # noqa: BLE001
+        # 连不上 ≠ 源废（可能是封 UA/封 IP），只降到队尾，不删
+        return "unreachable", None
+    return ("slow", dt) if dt > SLOW_SEC else ("ok", dt)
+
+
+def load_blocklist():
+    try:
+        with open(BLOCK_FILE, encoding="utf-8") as f:
+            return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+    except FileNotFoundError:
+        return []
 
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    rows, urls = [], []
+    blocked = load_blocklist()
 
+    # 汇总所有源的 api，去重后统一测一次
+    all_apis, datasets = set(), []
     for slug, raw_url, name in SOURCES:
         try:
             d = load(raw_url)
         except Exception as e:  # noqa: BLE001
-            rows.append((slug, name, False, 0, 0, str(e)[:50]))
             print("%-14s DEAD %s" % (slug, e))
+            datasets.append((slug, name, None, 0, str(e)[:40]))
             continue
-
-        n_before = len(d.get("sites") or [])
-        if n_before < 3:
-            rows.append((slug, name, False, n_before, 0, "片源太少"))
-            print("%-14s DEAD sites=%d" % (slug, n_before))
+        if len(d.get("sites") or []) < 3:
+            datasets.append((slug, name, None, 0, "片源太少"))
             continue
+        d, n_bad = clean(d, raw_url)
+        for s in d["sites"]:
+            api = s.get("api") or ""
+            if api.startswith("http"):
+                all_apis.add(api)
+        datasets.append((slug, name, (d, raw_url), n_bad, "ok"))
 
-        d, removed = clean(d, raw_url)
-        n = len(d.get("sites") or [])
+    print("待测接口 %d 个" % len(all_apis))
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(probe, a): a for a in all_apis}
+        for f in concurrent.futures.as_completed(futs):
+            results[futs[f]] = f.result()
+
+    rows, urls = [], []
+    for slug, name, payload, n_bad, note in datasets:
+        if payload is None:
+            rows.append((slug, name + "（" + note + "）", False, 0, 0, 0, 0))
+            continue
+        d, raw_url = payload
+        sites = d["sites"]
+
+        kept, dropped_slow, dropped_block, untested = [], 0, 0, 0
+        front, mid, back = [], [], []
+        for s in sites:
+            sname = s.get("name") or ""
+            if any(b.lower() in sname.lower() for b in blocked):
+                dropped_block += 1
+                continue
+            api = s.get("api") or ""
+            if SPECIAL.search(sname) or not api.startswith("http"):
+                mid.append(s)          # 内置项 / jar / js / py：不测，居中
+                if api.startswith("./") or api.startswith("csp_"):
+                    untested += 1
+                continue
+            st, dt = results.get(api, ("unknown", None))
+            if st == "dead":
+                dropped_slow += 1      # 域名不解析，直接删
+            elif st == "slow":
+                dropped_slow += 1      # 超过阈值，删
+            elif st == "ok":
+                s["_dt"] = dt
+                front.append(s)
+            else:
+                back.append(s)         # 连不上：降级不删
+
+        front.sort(key=lambda x: x.get("_dt", 99))
+        for s in front + mid + back:
+            s.pop("_dt", None)
+        kept = front + mid + back
+        d["sites"] = kept
+
         path = os.path.join(OUT_DIR, slug + ".json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
-        rows.append((slug, name, True, n, removed, "ok"))
+
         urls.append({
             "name": name,
             "url": PROXY + "https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/" + path,
         })
-        print("%-14s OK sites=%d 剔除国外=%d" % (slug, n, removed))
+        rows.append((slug, name, True, len(kept), dropped_slow + dropped_block,
+                     len(front), untested))
+        print("%-14s 保留%-4d 删%-3d 快源%-3d 未测%-3d" % (
+            slug, len(kept), dropped_slow + dropped_block, len(front), untested))
 
     if not urls:
         print("!! 全部上游不可用，保留旧文件", file=sys.stderr)
@@ -149,35 +231,32 @@ def main():
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
-        "# 源检测状态",
-        "",
-        "最近更新：%s" % now,
-        "",
-        "| 仓 | 名称 | 状态 | 国内可用源 | 剔除的国外源 |",
-        "|---|---|---|---|---|",
+        "# 源检测状态", "",
+        "最近更新：%s" % now, "",
+        "| 仓 | 状态 | 保留 | 删除 | 已测快源 | 解析器源（未测） |",
+        "|---|---|---|---|---|---|",
     ]
-    for slug, name, ok, n, removed, note in rows:
-        lines.append("| `%s` | %s | %s | %d | %d |" % (
-            slug, name, "✅" if ok else "❌ " + note, n, removed))
+    for slug, name, ok, n, dropped, fast, untested in rows:
+        lines.append("| `%s` | %s | %d | %d | %d | %d |" % (
+            slug, "✅ " + name if ok else "❌ " + "不可用", n, dropped, fast, untested))
     lines += [
         "",
-        "> 已自动剔除 YouTube、github.io、netlify、telegram 等国内直连不通的站点，"
-        "不需要任何 VPN 或代理工具。",
+        "## 测速口径", "",
+        "- 只对「直连 HTTP API」类型的源做真实测速（接口响应 ≤ %.0f 秒）" % SLOW_SEC,
+        "- 域名解析失败的源直接删除；接口超时的删除；连不上但域名正常的降到队尾",
+        "- 走 jar / js / python 解析器的源无法在服务端模拟播放链路，标注「未测」，按原顺序保留",
+        "- 播放中卡顿只能在电视上实测：遇到卡的就往 `blocklist.txt` 加一行源名，第二天自动剔除",
         "",
-        "## 电视上填这个地址",
-        "",
+        "## 电视上填这个地址", "",
         "```",
         PROXY + "https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/tvbox.json",
-        "```",
-        "",
+        "```", "",
         "主代理不通时把开头的 `gh-proxy.com` 换成 `ghproxy.net`。",
-        "",
-        "说明：`gh-proxy` 是 GitHub 的国内加速镜像，不是 VPN，国内直连即可。",
-        "",
+        "`gh-proxy` 是 GitHub 国内加速镜像，不是 VPN，国内直连即可。", "",
     ]
     with open("status.md", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
-    print("生成 %d 个仓" % len(urls))
+    print("完成，生成 %d 个仓" % len(urls))
     return 0
 
 
