@@ -32,7 +32,8 @@ import urllib.request
 
 PROXY = "https://gh-proxy.com/"
 TIMEOUT = 20            # 接口超时
-SLOW_SEC = 10.0         # 超过这个秒数视为慢源，删除
+RESOURCE = re.compile(r"gh-proxy\.com|\.js$|\.py$", re.I)  # 解析器资源，速度不代表源质量
+SLOW_SEC = 3.0          # 接口响应超过这个秒数视为慢源，直接删除（电视端转圈都在这）
 OUT_DIR = "sources"
 BLOCK_FILE = "blocklist.txt"
 
@@ -240,6 +241,11 @@ def main():
         speed = json.load(open("speed.json", encoding="utf-8"))
     except FileNotFoundError:
         speed = {}
+    # 两轮实测都连不上的源（DNS 失败/连接被重置/超时/404），直接删除
+    try:
+        dead = json.load(open("dead.json", encoding="utf-8"))
+    except FileNotFoundError:
+        dead = {}
 
     # 汇总所有源的 api，去重后统一测一次
     all_apis, all_hosts, datasets = set(), set(), []
@@ -266,11 +272,13 @@ def main():
     print("域名检测 %d 个；接口速度用本地快照 speed.json（%d 条）" % (
         len(all_hosts), len(speed)))
 
-    host_res = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
-        futs = {ex.submit(net_check, h): h for h in all_hosts}
-        for f in concurrent.futures.as_completed(futs):
-            host_res[futs[f]] = f.result()
+    # 域名连通性用本地快照 badhost.json：GitHub runner 在美国测国内域名不准，
+    # 所有实测都在沙箱侧做（见 tools/probe_all.py），update.py 只做过滤。
+    try:
+        host_res = json.load(open("badhost.json", encoding="utf-8"))
+    except FileNotFoundError:
+        host_res = {}
+    print("域名快照：%d 个不通（本次上游 %d 个域名）" % (len(host_res), len(all_hosts)))
 
     seen_ok, seen_fail = set(), {}
     rows, urls = [], []
@@ -282,6 +290,8 @@ def main():
         sites = d["sites"]
 
         kept, dropped_slow, dropped_block, dropped_perm, untested = [], 0, 0, 0, 0
+        dropped_dead = 0
+        dropped_host = 0
         front, mid, back = [], [], []
         for s in sites:
             sname = s.get("name") or ""
@@ -302,7 +312,7 @@ def main():
 
             if h and host_res.get(h) in ("dns", "tcp"):
                 seen_fail[key] = host_res.get(h)
-                dropped_slow += 1
+                dropped_host += 1
                 continue
 
             if not api.startswith("http"):
@@ -311,7 +321,11 @@ def main():
                 untested += 1
                 continue
 
-            if api in speed and speed[api] < 10:
+            if api in dead:
+                dropped_dead += 1
+                continue
+
+            if api in speed and speed[api] > SLOW_SEC and not RESOURCE.search(api):
                 seen_fail[key] = "slow"
                 dropped_slow += 1
                 continue
@@ -323,7 +337,7 @@ def main():
             else:
                 mid.append(s)          # 没测过：居中保留
 
-        front.sort(key=lambda x: x.get("_dt", 0), reverse=True)
+        front.sort(key=lambda x: x.get("_dt", 999.0))   # 实测快的排最前
         for s in front + mid + back:
             s.pop("_dt", None)
         kept = front + mid + back
@@ -350,11 +364,11 @@ def main():
             "name": name,
             "url": PROXY + "https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/" + path,
         })
-        rows.append((slug, name, True, len(kept),
-                     dropped_slow + dropped_block + dropped_perm, len(front), untested))
-        print("%-14s 保留%-4d 删%-3d(临时%d/永久%d) 快源%-3d 未测%-3d" % (
-            slug, len(kept), dropped_slow + dropped_block + dropped_perm,
-            dropped_slow, dropped_perm + dropped_block, len(front), untested))
+        drop_all = dropped_slow + dropped_host + dropped_dead + dropped_block + dropped_perm
+        rows.append((slug, name, True, len(kept), drop_all, len(front), untested))
+        print("%-14s 保留%-4d 删%-3d(接口慢%d/域名死%d/连不上%d/黑名单%d/永久%d) 快源%-3d 未测%-3d" % (
+            slug, len(kept), drop_all, dropped_slow, dropped_host, dropped_dead,
+            dropped_block, dropped_perm, len(front), untested))
 
     # 每轮每个源只记一次，避免被多个仓重复计数
     today = datetime.date.today().isoformat()
@@ -392,12 +406,12 @@ def main():
     lines += [
         "",
         "## 筛选口径", "",
-        "- **域名连通性**：每个源提取主域名，解析失败或 80/443 都连不上的直接删除",
-        "- **接口测速**：直连 HTTP API 的源实测响应时间，超过 %.0f 秒删除（共测 264 个接口）" % SLOW_SEC,
+        "- **域名连通性**：每个源提取主域名，解析失败或 80/443 两轮都连不上的直接删除（多 DNS 复核，避免误判）",
+        "- **接口测速**：直连 HTTP API 实测响应时间，超过 %.1f 秒直接删除（每个接口测两轮取优值）" % SLOW_SEC,
+        "- **连不上就删**：DNS 失败、连接被重置、8 秒超时、接口 404 的源，两轮实测都失败即删除",
+        "- **可自愈**：每天从上游重新拉取再过滤，被删的源如果哪天恢复，第二天会自动回来",
         "- **排序**：实测快的排最前；jar/js/py 解析器源无法在服务端模拟播放链路，居中标注「未测」",
         "- **国外源**：YouTube、googlevideo、github.io、netlify、vercel、telegram 等命中即删",
-        "- 播放中卡顿只能在电视上实测：遇到就往 `blocklist.txt` 加一行源名，第二天自动剔除",
-        "- 走 jar / js / python 解析器的源无法在服务端模拟播放链路，标注「未测」，按原顺序保留",
         "- 播放中卡顿只能在电视上实测：遇到卡的就往 `blocklist.txt` 加一行源名，第二天自动剔除",
         "",
         "## 电视上填这个地址", "",
