@@ -306,9 +306,6 @@ def main():
             h = primary_host(s)
             # 状态键：优先用接口，没有接口用域名。连续 3 天失败才永久删除
             key = ("api:" + api) if api.startswith("http") else ("host:" + (h or sname))
-            if state.get(key, {}).get("fail", 0) >= 3:
-                dropped_perm += 1
-                continue
 
             if h and host_res.get(h) in ("dns", "tcp"):
                 seen_fail[key] = host_res.get(h)
