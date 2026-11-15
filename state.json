@@ -14,6 +14,11 @@
   "last": "2026-11-14",
   "reason": "dns"
  },
+ "api:http://madouse.la/api.php/provide/vod/": {
+  "fail": 1,
+  "last": "2026-11-15",
+  "reason": "slow"
+ },
  "api:http://rihou.vip:55/lib/drpy2.min.js": {
   "fail": 3,
   "last": "2026-11-14",
@@ -38,6 +43,11 @@
   "fail": 3,
   "last": "2026-11-14",
   "reason": "dns"
+ },
+ "api:https://aosikazy2.com/api.php/provide/vod/": {
+  "fail": 1,
+  "last": "2026-11-15",
+  "reason": "slow"
  },
  "api:https://api.apibdzy.com/api.php/provide/vod/": {
   "fail": 3,
@@ -93,6 +103,11 @@
   "fail": 3,
   "last": "2026-11-14",
   "reason": "dns"
+ },
+ "api:https://cj.yayazy.net/api.php/provide/vod/at/xml/": {
+  "fail": 1,
+  "last": "2026-11-15",
+  "reason": "slow"
  },
  "api:https://collect.wolongzy.cc/api.php/provide/vod/at/xml/": {
   "fail": 3,
@@ -194,6 +209,11 @@
   "last": "2026-11-14",
   "reason": "dns"
  },
+ "api:https://www.mdzyapi.com/api.php/provide/vod/at/xml/": {
+  "fail": 1,
+  "last": "2026-11-15",
+  "reason": "slow"
+ },
  "api:https://www.pgxdy.com/api/json.php": {
   "fail": 3,
   "last": "2026-11-14",
@@ -249,11 +269,6 @@
   "last": "2026-11-14",
   "reason": "dns"
  },
- "host:app.kzjtv.com": {
-  "fail": 2,
-  "last": "2026-11-14",
-  "reason": "dns"
- },
  "host:app.omofun1.top": {
   "fail": 3,
   "last": "2026-11-14",
@@ -291,11 +306,6 @@
  },
  "host:www.kuin.one": {
   "fail": 3,
-  "last": "2026-11-14",
-  "reason": "dns"
- },
- "host:www.maolvys.com": {
-  "fail": 1,
   "last": "2026-11-14",
   "reason": "dns"
  },
