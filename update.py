@@ -241,11 +241,17 @@ def main():
         speed = json.load(open("speed.json", encoding="utf-8"))
     except FileNotFoundError:
         speed = {}
-    # 两轮实测都连不上的源（DNS 失败/连接被重置/超时/404），直接删除
+    # 两轮实测都连不上的源（DNS 失败/连接被重置/超时/404）
     try:
         dead = json.load(open("dead.json", encoding="utf-8"))
     except FileNotFoundError:
         dead = {}
+    # 昨天那份死源名单：接口死要连续两天都测不通才删。
+    # 单日网络抖动会让大片源假超时（实测误判率过半），域名判定则可靠得多。
+    try:
+        dead_prev = json.load(open("dead_prev.json", encoding="utf-8"))
+    except FileNotFoundError:
+        dead_prev = {}
 
     # 汇总所有源的 api，去重后统一测一次
     all_apis, all_hosts, datasets = set(), set(), []
@@ -318,7 +324,7 @@ def main():
                 untested += 1
                 continue
 
-            if api in dead:
+            if api in dead and (not dead_prev or api in dead_prev):
                 dropped_dead += 1
                 continue
 
