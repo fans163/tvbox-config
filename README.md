@@ -1,6 +1,6 @@
 # tvbox-config
 
-TVBox / OK影视 的配置聚合，每天自动检测上游源，输出一个多仓地址。
+TVBox / OK影视 的配置聚合，每周自动检测上游源，输出一个多仓地址。
 
 ## 来源
 
@@ -19,7 +19,7 @@ https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main
 
 ## 它做什么
 
-每天北京时间 04:00 跑一次：
+每周一北京时间 04:00 跑一次：
 
 1. 逐个拉取上游配置，JSON 能解析、片源数 ≥ 3 才算活着
 2. 活着的上游聚合成多仓配置 `tvbox.json`
