@@ -25,15 +25,35 @@ import os
 import re
 import socket
 import ssl
+import subprocess
 import sys
 import time
 import urllib.parse
 import urllib.request
 
+
+def detect_repo():
+    """识别当前仓库：Actions 读环境变量，本地从 origin 解析，不写死任何仓库名"""
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if repo:
+        return repo
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        raise RuntimeError("无法识别仓库，请设置 GITHUB_REPOSITORY 或在 git 仓库内运行")
+    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    if not m:
+        raise RuntimeError("无法从 origin 解析仓库：%s" % url)
+    return m.group(1)
+
+
 PROXY = "https://gh-proxy.com/"
 TIMEOUT = 20            # 接口超时
 # 输出地址指向「正在跑 Actions 的仓库」本身，不再写死 fork 的上游仓库
-REPO = os.environ.get("GITHUB_REPOSITORY") or "fans163/tvbox-config"
+REPO = detect_repo()
 RAW_BASE = "https://raw.githubusercontent.com/%s/main/" % REPO
 RESOURCE = re.compile(r"gh-proxy\.com|\.js$|\.py$", re.I)  # 解析器资源，速度不代表源质量
 SLOW_SEC = 3.0          # 接口响应超过这个秒数视为慢源，直接删除（电视端转圈都在这）
