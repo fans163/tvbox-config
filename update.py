@@ -32,6 +32,9 @@ import urllib.request
 
 PROXY = "https://gh-proxy.com/"
 TIMEOUT = 20            # 接口超时
+# 输出地址指向「正在跑 Actions 的仓库」本身，不再写死 fork 的上游仓库
+REPO = os.environ.get("GITHUB_REPOSITORY") or "fans163/tvbox-config"
+RAW_BASE = "https://raw.githubusercontent.com/%s/main/" % REPO
 RESOURCE = re.compile(r"gh-proxy\.com|\.js$|\.py$", re.I)  # 解析器资源，速度不代表源质量
 SLOW_SEC = 3.0          # 接口响应超过这个秒数视为慢源，直接删除（电视端转圈都在这）
 OUT_DIR = "sources"
@@ -365,7 +368,7 @@ def main():
 
         urls.append({
             "name": name,
-            "url": PROXY + "https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/" + path,
+            "url": PROXY + RAW_BASE + path,
         })
         drop_all = dropped_slow + dropped_host + dropped_dead + dropped_block + dropped_perm
         rows.append((slug, name, True, len(kept), drop_all, len(front), untested))
@@ -419,7 +422,7 @@ def main():
         "",
         "## 电视上填这个地址", "",
         "```",
-        PROXY + "https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/tvbox.json",
+        PROXY + RAW_BASE + "tvbox.json",
         "```", "",
         "主代理不通时把开头的 `gh-proxy.com` 换成 `ghproxy.net`。",
         "`gh-proxy` 是 GitHub 国内加速镜像，不是 VPN，国内直连即可。", "",

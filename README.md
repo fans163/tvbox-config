@@ -5,7 +5,7 @@ TVBox / OK影视 的配置聚合，每天自动检测上游源，输出一个多
 ## 电视上填这个
 
 ```
-https://gh-proxy.com/https://raw.githubusercontent.com/hesanyue50-lang/tvbox-config/main/tvbox.json
+https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main/tvbox.json
 ```
 
 不通就把开头的 `gh-proxy.com` 换成 `ghproxy.net`。
