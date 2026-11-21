@@ -52,8 +52,9 @@ def detect_repo():
 
 PROXY = "https://gh-proxy.com/"
 TIMEOUT = 20            # 接口超时
-# 输出地址指向「正在跑 Actions 的仓库」本身，不再写死 fork 的上游仓库
-REPO = detect_repo()
+# 输出地址指向「正在跑 Actions 的仓库」本身，不再写死 fork 的上游仓库。
+# 若另建了公开输出仓，用 TVBOX_PUBLIC_REPO 指定，生成结果里的地址就指向它。
+REPO = os.environ.get("TVBOX_PUBLIC_REPO") or detect_repo()
 RAW_BASE = "https://raw.githubusercontent.com/%s/main/" % REPO
 RESOURCE = re.compile(r"gh-proxy\.com|\.js$|\.py$", re.I)  # 解析器资源，速度不代表源质量
 SLOW_SEC = 3.0          # 接口响应超过这个秒数视为慢源，直接删除（电视端转圈都在这）

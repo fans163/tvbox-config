@@ -21,6 +21,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # 公开输出仓（可选）。未设置时生成地址指向当前仓库。
+      TVBOX_PUBLIC_REPO: ${{ vars.PUBLISH_REPO }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,3 +47,23 @@ jobs:
             git commit -m "auto update $(date -u +%Y-%m-%d_%H:%M)"
             git push --force origin main
           fi
+
+      - name: 发布到公开仓
+        env:
+          PUBLISH_REPO: ${{ vars.PUBLISH_REPO }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          if [ -z "$PUBLISH_REPO" ] || [ -z "$PUBLISH_TOKEN" ]; then
+            echo "未配置 PUBLISH_REPO / PUBLISH_TOKEN，跳过发布"
+            exit 0
+          fi
+          rm -rf /tmp/publish && mkdir -p /tmp/publish/sources
+          cp tvbox.json status.md /tmp/publish/
+          cp sources/*.json /tmp/publish/sources/
+          cd /tmp/publish
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "publish $(date -u +%Y-%m-%d_%H:%M)"
+          git push -q --force "https://x-access-token:${PUBLISH_TOKEN}@github.com/${PUBLISH_REPO}.git" HEAD:main
