@@ -57,9 +57,8 @@ jobs:
             echo "未配置 PUBLISH_REPO / PUBLISH_TOKEN，跳过发布"
             exit 0
           fi
-          rm -rf /tmp/publish && mkdir -p /tmp/publish/sources
-          cp tvbox.json status.md /tmp/publish/
-          cp sources/*.json /tmp/publish/sources/
+          rm -rf /tmp/publish && mkdir -p /tmp/publish
+          cp sources/qist-jsm.json /tmp/publish/tvbox.json
           cd /tmp/publish
           git init -q
           git config user.name "github-actions[bot]"

@@ -38,7 +38,7 @@ https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main
 
 ## 私有仓 + 公开输出仓
 
-本仓库只负责检测和聚合，生成结果会发布到公开仓 `fans163/6`，电视端从公开仓读取：
+本仓库只负责检测和聚合，公开仓 `fans163/6` 里只放一个文件 `tvbox.json`（单仓配置，自包含），电视端只需填这一个链接：
 
 ```
 https://gh-proxy.com/https://raw.githubusercontent.com/fans163/6/main/tvbox.json
