@@ -456,3 +456,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+# 自动发布验证触发
