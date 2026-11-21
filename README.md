@@ -2,6 +2,13 @@
 
 TVBox / OK影视 的配置聚合，每天自动检测上游源，输出一个多仓地址。
 
+## 来源
+
+本仓库 fork 自 [hesanyue50-lang/tvbox-config](https://github.com/hesanyue50-lang/tvbox-config)，
+在其基础上改为自动识别当前仓库、只保留可用的定时更新流程。
+
+片源配置均来自公开分享的上游作者（见下方「上游」），本仓库只做可用性检测与聚合，不托管任何片源。
+
 ## 电视上填这个
 
 ```
