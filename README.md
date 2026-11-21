@@ -36,22 +36,20 @@ https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main
 | qist 小而精 | 同上 `0826.json` |
 | 香雅情源 | 同上 `XYQ.json` |
 
-## 私有仓 + 公开输出仓（可选）
+## 私有仓 + 公开输出仓
 
-如果本仓库设为私有，raw 链接会返回 404，电视端就取不到配置。这时可以拆成两个仓：
-
-1. 新建一个公开仓，例如 `fans163/tvbox-pub`，只用来放生成结果
-2. 在私有仓 **Settings → Secrets and variables → Actions** 里添加：
-   - Variables：`PUBLISH_REPO` = `fans163/tvbox-pub`
-   - Secrets：`PUBLISH_TOKEN` = 一个对该公开仓有 **Contents: Read and write** 权限的 fine-grained PAT
-3. 手动运行一次 `update-config`，`tvbox.json`、`status.md`、`sources/*.json` 会自动推送到公开仓
-4. 确认公开仓地址可访问后，再把本仓库设为私有
-
-之后电视上填公开仓的地址：
+本仓库只负责检测和聚合，生成结果会发布到公开仓 `fans163/6`，电视端从公开仓读取：
 
 ```
-https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-pub/main/tvbox.json
+https://gh-proxy.com/https://raw.githubusercontent.com/fans163/6/main/tvbox.json
 ```
+
+如需更换发布目标，在 **Settings → Secrets and variables → Actions** 里设置：
+
+- Variables：`PUBLISH_REPO`（可选，默认 `fans163/6`）
+- Secrets：`PUBLISH_TOKEN`（必填，一个对目标公开仓有 **Contents: Read and write** 权限的 fine-grained PAT）
+
+配置完成后本仓库可以设为私有，定时任务仍会正常把结果推送到公开仓。
 
 ## 本地手动跑
 

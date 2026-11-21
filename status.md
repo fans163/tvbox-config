@@ -1,6 +1,6 @@
 # 源检测状态
 
-最近更新：2026-11-21 06:33 UTC
+最近更新：2026-11-21 06:51 UTC
 
 | 仓 | 状态 | 保留 | 删除 | 已测快源 | 解析器源（未测） |
 |---|---|---|---|---|---|
@@ -26,7 +26,7 @@
 ## 电视上填这个地址
 
 ```
-https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main/tvbox.json
+https://gh-proxy.com/https://raw.githubusercontent.com/fans163/6/main/tvbox.json
 ```
 
 主代理不通时把开头的 `gh-proxy.com` 换成 `ghproxy.net`。

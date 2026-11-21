@@ -22,8 +22,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # 公开输出仓（可选）。未设置时生成地址指向当前仓库。
-      TVBOX_PUBLIC_REPO: ${{ vars.PUBLISH_REPO }}
+      # 公开输出仓。默认 fans163/6，可用仓库变量 PUBLISH_REPO 覆盖。
+      TVBOX_PUBLIC_REPO: ${{ vars.PUBLISH_REPO || 'fans163/6' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,7 +50,7 @@ jobs:
 
       - name: 发布到公开仓
         env:
-          PUBLISH_REPO: ${{ vars.PUBLISH_REPO }}
+          PUBLISH_REPO: ${{ vars.PUBLISH_REPO || 'fans163/6' }}
           PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
         run: |
           if [ -z "$PUBLISH_REPO" ] || [ -z "$PUBLISH_TOKEN" ]; then
