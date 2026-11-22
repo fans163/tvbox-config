@@ -66,3 +66,8 @@ jobs:
           git add -A
           git commit -qm "publish $(date -u +%Y-%m-%d_%H:%M)"
           git push -q --force "https://x-access-token:${PUBLISH_TOKEN}@github.com/${PUBLISH_REPO}.git" HEAD:main
+
+      - name: 刷新 CDN 缓存
+        run: |
+          curl -s -m 30 "https://purge.jsdelivr.net/gh/fans163/6@main/tvbox.json" || true
+          echo

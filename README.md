@@ -12,10 +12,10 @@ TVBox / OK影视 的配置聚合，每周自动检测上游源，输出一个多
 ## 电视上填这个
 
 ```
-https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main/tvbox.json
+https://cdn.jsdelivr.net/gh/fans163/6@main/tvbox.json
 ```
 
-不通就把开头的 `gh-proxy.com` 换成 `ghproxy.net`。
+不通就换 `https://ghfast.top/https://raw.githubusercontent.com/fans163/6/main/tvbox.json`。
 
 ## 它做什么
 
@@ -41,8 +41,10 @@ https://gh-proxy.com/https://raw.githubusercontent.com/fans163/tvbox-config/main
 本仓库只负责检测和聚合，公开仓 `fans163/6` 里只放一个文件 `tvbox.json`（单仓配置，自包含），电视端只需填这一个链接：
 
 ```
-https://gh-proxy.com/https://raw.githubusercontent.com/fans163/6/main/tvbox.json
+https://cdn.jsdelivr.net/gh/fans163/6@main/tvbox.json
 ```
+
+每次发布后工作流会调用 jsDelivr 的 purge 接口清缓存，保证电视端尽快拿到新内容。
 
 如需更换发布目标，在 **Settings → Secrets and variables → Actions** 里设置：
 
