@@ -10,6 +10,7 @@ on:
     paths:
       - 'update.py'
       - '.github/workflows/update.yml'
+      - 'sources/**'
 
 permissions:
   contents: write
@@ -20,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # 机器人自己提交/推送不触发，防止「更新→提交→再触发」死循环
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
       # 公开输出仓。默认 fans163/6，可用仓库变量 PUBLISH_REPO 覆盖。
