@@ -95,6 +95,20 @@ SPECIAL = re.compile(r"配置|本地|搜索|设置", re.I)
 # 成人内容：家庭电视上不该出现
 ADULT = re.compile(r"成人|黄AV|AV资源|porn|约炮|福利姬|三级片|av在线|涩涩", re.I)
 
+# 网盘播放 / 盘搜 / 戏曲：家庭电视用不上，且源数量太多会把低配盒子拖崩
+PAN = re.compile(r"网盘|云盘|盘搜|戏曲|夸克|阿里|115", re.I)
+PAN_API = ("csp_Pan", "csp_UCShare")
+PAN_KEEP_API = "csp_PanConfigGuard"   # 配置中心是内置功能，不算片源
+
+
+def is_pan_or_opera(site):
+    api = site.get("api") or ""
+    if api.startswith(PAN_KEEP_API):
+        return False
+    if api.startswith(PAN_API):
+        return True
+    return bool(PAN.search(site.get("name") or ""))
+
 _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
@@ -322,11 +336,15 @@ def main():
         kept, dropped_slow, dropped_block, dropped_perm, untested = [], 0, 0, 0, 0
         dropped_dead = 0
         dropped_host = 0
+        dropped_pan = 0
         front, mid, back = [], [], []
         for s in sites:
             sname = s.get("name") or ""
             if any(b.lower() in sname.lower() for b in blocked):
                 dropped_block += 1
+                continue
+            if is_pan_or_opera(s):
+                dropped_pan += 1
                 continue
             api = s.get("api") or ""
             if SPECIAL.search(sname):
@@ -391,11 +409,11 @@ def main():
             "name": name,
             "url": PROXY + RAW_BASE + path,
         })
-        drop_all = dropped_slow + dropped_host + dropped_dead + dropped_block + dropped_perm
+        drop_all = dropped_slow + dropped_host + dropped_dead + dropped_block + dropped_perm + dropped_pan
         rows.append((slug, name, True, len(kept), drop_all, len(front), untested))
-        print("%-14s 保留%-4d 删%-3d(接口慢%d/域名死%d/连不上%d/黑名单%d/永久%d) 快源%-3d 未测%-3d" % (
+        print("%-14s 保留%-4d 删%-3d(接口慢%d/域名死%d/连不上%d/黑名单%d/永久%d/网盘戏曲%d) 快源%-3d 未测%-3d" % (
             slug, len(kept), drop_all, dropped_slow, dropped_host, dropped_dead,
-            dropped_block, dropped_perm, len(front), untested))
+            dropped_block, dropped_perm, dropped_pan, len(front), untested))
 
     # 每轮每个源只记一次，避免被多个仓重复计数
     today = datetime.date.today().isoformat()
@@ -439,6 +457,7 @@ def main():
         "- **可自愈**：每次从上游重新拉取再过滤，被删的源如果哪天恢复，下次运行会自动回来",
         "- **排序**：实测快的排最前；jar/js/py 解析器源无法在服务端模拟播放链路，居中标注「未测」",
         "- **国外源**：YouTube、googlevideo、github.io、netlify、vercel、telegram 等命中即删",
+        "- **网盘/戏曲**：网盘、云盘、盘搜、戏曲类源命中即删（电视用不上，源太多会拖崩低配盒子）",
         "- 播放中卡顿只能在电视上实测：遇到卡的就往 `blocklist.txt` 加一行源名，下次运行自动剔除",
         "",
         "## 电视上填这个地址", "",
